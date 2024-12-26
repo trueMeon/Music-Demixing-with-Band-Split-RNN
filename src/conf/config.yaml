@@ -69,5 +69,8 @@ hydra:
   job:
     chdir: False
 
+torch:
+  matmul_precision: highest
+
 # wandb
 wandb_api_key: ${oc.env:WANDB_API_KEY}
