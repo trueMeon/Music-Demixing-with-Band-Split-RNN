@@ -15,7 +15,7 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer, lr_scheduler
 
-from data import SourceSeparationDataset, collate_fn
+from data import SourceSeparationDataset, collate_fn, PreloadSourceSeparationDataset
 from model import BandSplitRNN, PLModel
 
 import logging
@@ -56,6 +56,32 @@ def initialize_loaders(cfg: DictConfig) -> Tuple[DataLoader, DataLoader]:
         val_loader
     )
 
+def initialize_preloaded_loaders(cfg: DictConfig) -> Tuple[DataLoader, DataLoader]:
+    train_dataset = PreloadSourceSeparationDataset(
+        **cfg.train_dataset,
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        **cfg.train_loader,
+        collate_fn=collate_fn
+    )
+
+    val_loader = None
+
+    if hasattr(cfg, 'val_dataset'):
+        val_dataset = PreloadSourceSeparationDataset(
+            **cfg.val_dataset,
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            **cfg.val_loader,
+            collate_fn=collate_fn
+        )
+
+    return (
+        train_loader,
+        val_loader
+    )
 
 def initialize_featurizer(
         cfg: DictConfig
@@ -189,7 +215,8 @@ def train(
     log.info(OmegaConf.to_yaml(cfg))
 
     log.info("Initializing loaders, featurizers.")
-    train_loader, val_loader = initialize_loaders(cfg)
+    # train_loader, val_loader = initialize_loaders(cfg)
+    train_loader, val_loader = initialize_preloaded_loaders(cfg)
     featurizer, inverse_featurizer = initialize_featurizer(cfg)
     augs = initialize_augmentations(cfg)
 
