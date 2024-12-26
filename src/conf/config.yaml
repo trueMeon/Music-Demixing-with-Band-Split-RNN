@@ -8,7 +8,7 @@ defaults:
   - augmentations: default
   - featurizer: stft
   - callbacks: default
-  - logger: ['tensorboard','wandb'] # set logger here or use command line (e.g. python run.py logger=['tensorboard','wandb'])
+  - logger: ['tensorboard'] # set logger here or use command line (e.g. python run.py logger=['tensorboard','wandb'])
   - _self_
 
 # data
@@ -49,8 +49,8 @@ trainer:
   fast_dev_run: False
   min_epochs: 100 # optional (included early stopping callback)
   max_epochs: 500
-  val_check_interval: 1 # comment out to ignore validation data (i.e. for final training)
-  check_val_every_n_epoch: 1 # comment out to ignore validation data (i.e. for final training)
+  # val_check_interval: 1 # comment out to ignore validation data (i.e. for final training)
+  check_val_every_n_epoch: 5 # comment out to ignore validation data (i.e. for final training)
   num_sanity_val_steps: 5 # comment out to ignore validation data (i.e. for final training)
   log_every_n_steps: 10 # 100
   accelerator: auto # "auto", gpu
@@ -73,4 +73,4 @@ torch:
   matmul_precision: highest
 
 # wandb
-wandb_api_key: ${oc.env:WANDB_API_KEY}
+# wandb_api_key: ${oc.env:WANDB_API_KEY}
