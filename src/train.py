@@ -181,6 +181,9 @@ def train(
         Optional[float]: Metric score for hyperparameter optimization.
     """
 
+    log.info(f"Float32 matmul precision: {cfg.torch.matmul_precision}")
+    torch.set_float32_matmul_precision(cfg.torch.matmul_precision)
+    
     pl.seed_everything(42, workers=True)
 
     log.info(OmegaConf.to_yaml(cfg))
