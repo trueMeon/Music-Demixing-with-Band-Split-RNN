@@ -1,10 +1,189 @@
+import logging
 import torch
 from torch.utils.data import Dataset
 import torchaudio
 import random
+from collections import defaultdict
 from pathlib import Path
 import typing as tp
 from tqdm import tqdm
+
+
+log = logging.getLogger(__name__)
+
+class PreloadSourceSeparationDataset(Dataset):
+    """
+    Dataset class for working with train/validation data from MUSDB18 dataset.
+    """
+    TARGETS: tp.Set[str] = {'vocals', 'bass', 'drums', 'other'}
+    EXTENSIONS: tp.Set[str] = {'.wav', '.mp3'}
+
+    def __init__(
+            self,
+            file_dir: str,
+            txt_dir: str = None,
+            target: str = 'vocals',
+            is_mono: bool = False,
+            is_training: bool = True,
+            sr: int = 44100,
+            silent_prob: float = 0.1,
+            mix_prob: float = 0.1,
+            mix_tgt_too: bool = False,
+    ):
+        self.file_dir = Path(file_dir)
+        self.is_training = is_training
+        self.target = target
+        self.sr = sr
+        self.txt_dir = txt_dir
+        self.is_mono = is_mono
+        self.files = []
+        self.stems_samples = defaultdict(list)
+
+        # augmentations
+        self.silent_prob = silent_prob
+        self.mix_prob = mix_prob
+        self.mix_tgt_too = mix_tgt_too
+
+        self._load_files()
+
+    def _txt_path(self, target: str) -> Path:
+        assert self.txt_dir is not None, "'txt_dir' isn't specified"
+        mode = 'train' if self.is_training else 'valid'
+        return Path(self.txt_dir) / f"{target}_{mode}.txt"
+
+    def _files_offsets(self, target: str):
+        offsets = defaultdict(list)
+
+        with open(self._txt_path(target), "r") as file:
+            for line in file.readlines():
+                file_name, start_idx, end_idx = line.split("\t")
+                offsets[file_name].append((int(start_idx), int(end_idx)))
+        
+        return offsets
+    
+    def _file_waveform(self, path: str) -> torch.Tensor:
+        assert Path(path).is_file(), f"There is no such file - {path}."
+        
+        y, sr = torchaudio.load(
+            path,
+            channels_first=True
+        )
+
+        assert sr == self.sr, f"Sampling rate should be equal {self.sr}, not {sr}."
+        if self.is_mono:
+            y = torch.mean(y, dim=0, keepdim=True)
+
+        return y
+
+    def _load_files(self):
+        for target in self.TARGETS:
+            if not self.is_training and target != self.target:
+                continue
+            
+            mode = "training" if self.is_training else "validation"
+            log.info(f"Preloading {target} stem samples for {mode}")
+            
+            for file_name, offsets in tqdm(self._files_offsets(target).items()):
+                filepath_template = str(self.file_dir / "train" / file_name / "{}.wav")
+
+                if target == self.target:
+                    mix_waveform = self._file_waveform(filepath_template.format("mixture"))
+                    tgt_waveform = self._file_waveform(filepath_template.format(target))
+
+                    for seg_start, seg_end in offsets:
+                        mix_segment = mix_waveform[:, seg_start:seg_end]
+                        tgt_segment = tgt_waveform[:, seg_start:seg_end]
+
+                        # max_norm = max(
+                        #     mix_segment.abs().max(), tgt_segment.abs().max()
+                        # )
+                        # mix_segment /= max_norm
+                        # tgt_segment /= max_norm
+
+                        self.files.append((mix_segment, tgt_segment))
+                        self.stems_samples[target].append(tgt_segment)
+                else:
+                    tgt_waveform = self._file_waveform(filepath_template.format(target))
+
+                    for seg_start, seg_end in offsets:
+                        tgt_segment = tgt_waveform[:, seg_start:seg_end]
+                        # tgt_segment /= tgt_segment.abs().max()
+                        self.stems_samples[target].append(tgt_segment)
+                
+    @staticmethod
+    def _imitate_silent_segments(
+            mix_segment: torch.Tensor,
+            tgt_segment: torch.Tensor
+    ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        """Returns mixture without target and a tensor of zeros the same length as the target (silent segment)
+        """
+        return (
+            mix_segment - tgt_segment,
+            torch.zeros_like(tgt_segment)
+        )
+
+    def _mix_segments(
+            self,
+            mix_segment: torch.Tensor,
+            tgt_segment: torch.Tensor,
+    ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Creating new mixture and new target from target file and random multiple sources
+        """
+        n_sources = random.randrange(1, len(self.TARGETS) + 1)
+        # decide which sources to mix
+        targets_to_add = random.sample(
+            self.TARGETS, n_sources
+        )
+        # create new mix segment
+        # mix_segment = tgt_segment.clone()
+        for target in targets_to_add:
+            # get random file to mix source from
+            random_segment = random.choice(self.stems_samples[target])
+            mix_segment += random_segment
+            if target == self.target:
+                tgt_segment += random_segment
+        return (
+            mix_segment, tgt_segment
+        )
+
+    def _augment(
+            self,
+            mix_segment: torch.Tensor,
+            tgt_segment: torch.Tensor
+    ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        if self.is_training:
+            # dropping target
+            if random.random() < self.silent_prob:
+                mix_segment, tgt_segment = self._imitate_silent_segments(
+                    mix_segment, tgt_segment
+                )
+            # mixing with other sources
+            if random.random() < self.mix_prob:
+                mix_segment, tgt_segment = self._mix_segments(
+                    mix_segment, tgt_segment
+                )
+
+        return mix_segment, tgt_segment
+
+    def __getitem__(
+            self,
+            index: int
+    ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Each Tensor's output shape: [n_channels, frames_in_segment]
+        """
+        mix_segment, tgt_segment = self.files[index]
+        mix_segment, tgt_segment = self._augment(mix_segment, tgt_segment)
+
+        max_norm = max(mix_segment.abs().max(), tgt_segment.abs().max())
+        mix_segment /= max_norm
+        tgt_segment /= max_norm
+
+        return (mix_segment, tgt_segment)
+
+    def __len__(self):
+        return len(self.files)
 
 
 class SourceSeparationDataset(Dataset):
