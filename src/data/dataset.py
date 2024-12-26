@@ -187,9 +187,8 @@ class SourceSeparationDataset(Dataset):
             mix_segment, tgt_segment = self.filelist[index]
         else:
             mix_segment, tgt_segment = self.load_files(*self.filelist[index])
-
-        # augmentations related to mixing/dropping sources
-        mix_segment, tgt_segment = self.augment(mix_segment, tgt_segment)
+            # augmentations related to mixing/dropping sources
+            mix_segment, tgt_segment = self.augment(mix_segment, tgt_segment)
 
         return (
             mix_segment, tgt_segment
