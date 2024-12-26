@@ -1,0 +1,11 @@
+ffmpeg=4.3
+wandb=0.14.2
+pytorch>=1.13 
+torchaudio>=0.13 
+pytorch-lightning=1.9.2 
+pytorch-cuda=12.1 
+cudatoolkit>=10
+tqdm=4.64.1 
+
+-c pytorch 
+-c nvidia
