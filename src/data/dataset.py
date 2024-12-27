@@ -140,6 +140,10 @@ class PreloadSourceSeparationDataset(Dataset):
         for target in targets_to_add:
             # get random file to mix source from
             random_segment = random.choice(self.stems_samples[target])
+            
+            if random_segment is tgt_segment:
+                continue
+
             mix_segment += random_segment
             if target == self.target:
                 tgt_segment += random_segment
