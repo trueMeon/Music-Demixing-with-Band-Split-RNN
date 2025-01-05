@@ -2,7 +2,7 @@
 
 wandb:
   _target_: pytorch_lightning.loggers.WandbLogger
-  project: MDX_BSRNN_23
+  project: BSRNN
   name: ${train_dataset.target}
   save_dir: "wandb_logs"
   offline: False # set True to store all logs only locally
