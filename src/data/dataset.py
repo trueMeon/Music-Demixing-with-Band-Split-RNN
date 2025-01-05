@@ -28,7 +28,7 @@ class PreloadSourceSeparationDataset(Dataset):
             sr: int = 44100,
             silent_prob: float = 0.1,
             mix_prob: float = 0.1,
-            mix_tgt_too: bool = False,
+            mix_tgt_prob: float = 0.5,
     ):
         self.file_dir = Path(file_dir)
         self.is_training = is_training
@@ -42,7 +42,7 @@ class PreloadSourceSeparationDataset(Dataset):
         # augmentations
         self.silent_prob = silent_prob
         self.mix_prob = mix_prob
-        self.mix_tgt_too = mix_tgt_too
+        self.mix_tgt_prob = mix_tgt_prob
 
         self._load_files()
 
@@ -124,19 +124,24 @@ class PreloadSourceSeparationDataset(Dataset):
 
     def _mix_segments(
             self,
-            mix_segment: torch.Tensor,
             tgt_segment: torch.Tensor,
+            mix_tgt_too: bool,
     ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
         """
         Creating new mixture and new target from target file and random multiple sources
         """
-        n_sources = random.randrange(1, len(self.TARGETS) + 1)
+        targets = self.TARGETS
+
+        if not mix_tgt_too:
+            targets = targets.difference(self.target)
+
+        n_sources = random.randrange(1, len(targets) + 1)
         # decide which sources to mix
         targets_to_add = random.sample(
             self.TARGETS, n_sources
         )
         # create new mix segment
-        # mix_segment = tgt_segment.clone()
+        mix_segment = tgt_segment.clone()
         for target in targets_to_add:
             # get random file to mix source from
             random_segment = random.choice(self.stems_samples[target])
@@ -146,7 +151,7 @@ class PreloadSourceSeparationDataset(Dataset):
 
             mix_segment += random_segment
             if target == self.target:
-                tgt_segment += random_segment
+                tgt_segment += random_segment.clone()
         return (
             mix_segment, tgt_segment
         )
@@ -158,14 +163,18 @@ class PreloadSourceSeparationDataset(Dataset):
     ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
         if self.is_training:
             # dropping target
+            target_dropped = False
+
             if random.random() < self.silent_prob:
                 mix_segment, tgt_segment = self._imitate_silent_segments(
                     mix_segment, tgt_segment
                 )
+                target_dropped = True
+
             # mixing with other sources
             if random.random() < self.mix_prob:
                 mix_segment, tgt_segment = self._mix_segments(
-                    mix_segment, tgt_segment
+                    tgt_segment, not target_dropped and random.random() < self.mix_tgt_prob
                 )
 
         return mix_segment, tgt_segment
