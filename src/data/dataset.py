@@ -29,6 +29,7 @@ class PreloadSourceSeparationDataset(Dataset):
             silent_prob: float = 0.1,
             mix_prob: float = 0.1,
             mix_tgt_prob: float = 0.5,
+            mix_gain_scale: tp.Tuple[float, float] = [-10, 10]
     ):
         self.file_dir = Path(file_dir)
         self.is_training = is_training
@@ -43,6 +44,7 @@ class PreloadSourceSeparationDataset(Dataset):
         self.silent_prob = silent_prob
         self.mix_prob = mix_prob
         self.mix_tgt_prob = mix_tgt_prob
+        self.mix_gain_scale = mix_gain_scale
 
         self._load_files()
 
@@ -121,6 +123,10 @@ class PreloadSourceSeparationDataset(Dataset):
             mix_segment - tgt_segment,
             torch.zeros_like(tgt_segment)
         )
+    
+    @staticmethod
+    def _db2amp(db):
+        return 10 ** (db / 20)
 
     def _mix_segments(
             self,
@@ -141,10 +147,11 @@ class PreloadSourceSeparationDataset(Dataset):
             self.TARGETS, n_sources
         )
         # create new mix segment
+        tgt_segment *= self._db2amp(random.uniform(*self.mix_gain_scale))
         mix_segment = tgt_segment.clone()
         for target in targets_to_add:
             # get random file to mix source from
-            random_segment = random.choice(self.stems_samples[target])
+            random_segment = random.choice(self.stems_samples[target]) * self._db2amp(random.uniform(*self.mix_gain_scale))
             
             if random_segment is tgt_segment:
                 continue
