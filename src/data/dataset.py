@@ -29,7 +29,8 @@ class PreloadSourceSeparationDataset(Dataset):
             silent_prob: float = 0.1,
             mix_prob: float = 0.1,
             mix_tgt_prob: float = 0.5,
-            mix_gain_scale: tp.Tuple[float, float] = [-10, 10]
+            mix_gain_scale: tp.Tuple[float, float] = [-10, 10],
+            mix_chunk_in_secs: int = 3,
     ):
         self.file_dir = Path(file_dir)
         self.is_training = is_training
@@ -45,6 +46,7 @@ class PreloadSourceSeparationDataset(Dataset):
         self.mix_prob = mix_prob
         self.mix_tgt_prob = mix_tgt_prob
         self.mix_gain_scale = mix_gain_scale
+        self.mix_chunk_size = sr * mix_chunk_in_secs
 
         self._load_files()
 
@@ -127,6 +129,25 @@ class PreloadSourceSeparationDataset(Dataset):
     @staticmethod
     def _db2amp(db):
         return 10 ** (db / 20)
+    
+    def _random_chunk(self, segment: torch.Tensor) -> torch.Tensor:
+        assert segment.shape[1] >= self.mix_chunk_size, "Length of the segment is less than mix_chunk_size"
+
+        start = random.randrange(0, segment.shape[1] - self.mix_chunk_size)
+        end = start + self.mix_chunk_size
+        return segment[..., start:end]
+    
+    def _random_corrensponding_chunks(
+            self, 
+            mix_segment: torch.Tensor, 
+            tgt_segment: torch.Tensor,
+        )  -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        assert mix_segment.shape[1] == tgt_segment.shape[1], "Lengths of the segments aren't equal to each other"
+        assert mix_segment.shape[1] >= self.mix_chunk_size, "Length of the segments is less than mix_chunk_size"
+        
+        start = random.randrange(0, mix_segment.shape[1] - self.mix_chunk_size)
+        end = start + self.mix_chunk_size
+        return (mix_segment[..., start:end], tgt_segment[..., start:end])
 
     def _mix_segments(
             self,
@@ -162,6 +183,45 @@ class PreloadSourceSeparationDataset(Dataset):
         return (
             mix_segment, tgt_segment
         )
+    
+    def _mixed_sample(self, tgt_segment: torch.Tensor) -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        C, _ = tgt_segment.shape
+        new_mix_segment, new_tgt_segment = (
+            torch.zeros([C, self.mix_chunk_size]), 
+            torch.zeros([C, self.mix_chunk_size])
+        )
+
+        for target in self.TARGETS:
+            if random.random() < self.silent_prob:
+                continue
+            
+            if target != self.target:
+                new_mix_segment += self._random_chunk(
+                    random.choice(self.stems_samples[target]) 
+                    * self._db2amp(random.uniform(*self.mix_gain_scale))
+                )
+                continue
+            
+            random_tgt_chunk = self._random_chunk(
+                    tgt_segment * self._db2amp(random.uniform(*self.mix_gain_scale))
+                )
+            new_mix_segment += random_tgt_chunk
+            new_tgt_segment += random_tgt_chunk
+
+            if random.random() >= self.mix_tgt_prob:
+                continue
+
+            random_segment = random.choice(self.stems_samples[target])
+            if random_segment is tgt_segment:
+                continue
+
+            random_tgt_chunk = self._random_chunk(
+                    random_segment * self._db2amp(random.uniform(*self.mix_gain_scale))
+                )
+            new_mix_segment += random_tgt_chunk
+            new_tgt_segment += random_tgt_chunk
+
+        return (new_mix_segment, new_tgt_segment)
 
     def _augment(
             self,
@@ -169,20 +229,11 @@ class PreloadSourceSeparationDataset(Dataset):
             tgt_segment: torch.Tensor
     ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
         if self.is_training:
-            # dropping target
-            target_dropped = False
-
-            if random.random() < self.silent_prob:
-                mix_segment, tgt_segment = self._imitate_silent_segments(
-                    mix_segment, tgt_segment
-                )
-                target_dropped = True
-
             # mixing with other sources
             if random.random() < self.mix_prob:
-                mix_segment, tgt_segment = self._mix_segments(
-                    tgt_segment, not target_dropped and random.random() < self.mix_tgt_prob
-                )
+                mix_segment, tgt_segment = self._mixed_sample(tgt_segment)
+            else:
+                mix_segment, tgt_segment = self._random_corrensponding_chunks(mix_segment, tgt_segment)
 
         return mix_segment, tgt_segment
 
