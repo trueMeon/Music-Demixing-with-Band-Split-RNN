@@ -187,8 +187,8 @@ class PreloadSourceSeparationDataset(Dataset):
     def _mixed_sample(self, tgt_segment: torch.Tensor) -> tp.Tuple[torch.Tensor, torch.Tensor]:
         C, _ = tgt_segment.shape
         new_mix_segment, new_tgt_segment = (
-            torch.zeros([C, self.mix_chunk_size]), 
-            torch.zeros([C, self.mix_chunk_size])
+            torch.zeros_like(tgt_segment), 
+            torch.zeros_like(tgt_segment),
         )
 
         for target in self.TARGETS:
@@ -196,17 +196,15 @@ class PreloadSourceSeparationDataset(Dataset):
                 continue
             
             if target != self.target:
-                new_mix_segment += self._random_chunk(
-                    random.choice(self.stems_samples[target]) 
+                new_mix_segment += (
+                    random.choice(self.stems_samples[target])
                     * self._db2amp(random.uniform(*self.mix_gain_scale))
                 )
                 continue
             
-            random_tgt_chunk = self._random_chunk(
-                    tgt_segment * self._db2amp(random.uniform(*self.mix_gain_scale))
-                )
-            new_mix_segment += random_tgt_chunk
-            new_tgt_segment += random_tgt_chunk
+            random_segment = tgt_segment * self._db2amp(random.uniform(*self.mix_gain_scale))
+            new_mix_segment += random_segment
+            new_tgt_segment += random_segment
 
             if random.random() >= self.mix_tgt_prob:
                 continue
@@ -215,11 +213,9 @@ class PreloadSourceSeparationDataset(Dataset):
             if random_segment is tgt_segment:
                 continue
 
-            random_tgt_chunk = self._random_chunk(
-                    random_segment * self._db2amp(random.uniform(*self.mix_gain_scale))
-                )
-            new_mix_segment += random_tgt_chunk
-            new_tgt_segment += random_tgt_chunk
+            random_segment *= self._db2amp(random.uniform(*self.mix_gain_scale))
+            new_mix_segment += random_segment
+            new_tgt_segment += random_segment
 
         return (new_mix_segment, new_tgt_segment)
 
@@ -231,8 +227,6 @@ class PreloadSourceSeparationDataset(Dataset):
         # mixing with other sources
         if self.is_training and random.random() < self.mix_prob:
             mix_segment, tgt_segment = self._mixed_sample(tgt_segment)
-        else:
-            mix_segment, tgt_segment = self._random_corrensponding_chunks(mix_segment, tgt_segment)
 
         return mix_segment, tgt_segment
 
