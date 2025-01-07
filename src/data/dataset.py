@@ -232,8 +232,8 @@ class PreloadSourceSeparationDataset(Dataset):
             # mixing with other sources
             if random.random() < self.mix_prob:
                 mix_segment, tgt_segment = self._mixed_sample(tgt_segment)
-            else:
-                mix_segment, tgt_segment = self._random_corrensponding_chunks(mix_segment, tgt_segment)
+        else:
+            mix_segment, tgt_segment = self._random_corrensponding_chunks(mix_segment, tgt_segment)
 
         return mix_segment, tgt_segment
 
