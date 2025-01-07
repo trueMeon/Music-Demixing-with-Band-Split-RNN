@@ -228,10 +228,9 @@ class PreloadSourceSeparationDataset(Dataset):
             mix_segment: torch.Tensor,
             tgt_segment: torch.Tensor
     ) -> tp.Tuple[torch.Tensor, torch.Tensor]:
-        if self.is_training:
-            # mixing with other sources
-            if random.random() < self.mix_prob:
-                mix_segment, tgt_segment = self._mixed_sample(tgt_segment)
+        # mixing with other sources
+        if self.is_training and random.random() < self.mix_prob:
+            mix_segment, tgt_segment = self._mixed_sample(tgt_segment)
         else:
             mix_segment, tgt_segment = self._random_corrensponding_chunks(mix_segment, tgt_segment)
 
